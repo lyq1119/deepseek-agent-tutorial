@@ -20,9 +20,11 @@ Hooks run callbacks at fixed points in the agent loop:
          +---------------- tool_result ------------------+
 """
 
+import json
 import os
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 try:
     import readline
@@ -33,14 +35,14 @@ try:
 except ImportError:
     pass
 
-from anthropic import Anthropic
 from dotenv import load_dotenv
+from openai import OpenAI
 
 load_dotenv(override=True)
 WORKDIR = Path.cwd()
-client = Anthropic(
+client = OpenAI(
     api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com/anthropic",
+    base_url="https://api.deepseek.com",
 )
 MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
@@ -99,17 +101,20 @@ def run_glob(pattern: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+def tool(name: str, description: str, properties: dict, required: list[str]) -> dict:
+    return {"type": "function", "function": {
+        "name": name,
+        "description": description,
+        "parameters": {"type": "object", "properties": properties, "required": required},
+    }}
+
+
 TOOLS = [
-    {"name": "bash", "description": "Run a shell command.",
-     "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
-    {"name": "read_file", "description": "Read file contents.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}},
-    {"name": "write_file", "description": "Write content to a file.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-    {"name": "edit_file", "description": "Replace exact text in a file once.",
-     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
-    {"name": "glob", "description": "Find files matching a glob pattern.",
-     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
+    tool("bash", "Run a shell command.", {"command": {"type": "string"}}, ["command"]),
+    tool("read_file", "Read file contents.", {"path": {"type": "string"}, "limit": {"type": "integer"}}, ["path"]),
+    tool("write_file", "Write content to a file.", {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
+    tool("edit_file", "Replace exact text in a file once.", {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, ["path", "old_text", "new_text"]),
+    tool("glob", "Find files matching a glob pattern.", {"pattern": {"type": "string"}}, ["pattern"]),
 ]
 
 TOOL_HANDLERS = {
@@ -180,9 +185,7 @@ def context_inject_hook(query: str):
 
 # Stop hook: print summary when loop is about to exit
 def summary_hook(messages: list):
-    tool_count = sum(1 for m in messages
-                     for b in (m.get("content") if isinstance(m.get("content"), list) else [])
-                     if isinstance(b, dict) and b.get("type") == "tool_result")
+    tool_count = sum(m.get("role") == "tool" for m in messages)
     print(f"\033[90m[HOOK] Stop: session used {tool_count} tool calls\033[0m")
     return None
 
@@ -199,29 +202,33 @@ register_hook("Stop", summary_hook)
 
 def agent_loop(messages: list):
     while True:
-        response = client.messages.create(
-            model=MODEL, system=SYSTEM, messages=messages,
-            tools=TOOLS, max_tokens=8000,
+        response = client.chat.completions.create(
+            model=MODEL, messages=messages, tools=TOOLS, max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        message = response.choices[0].message
+        messages.append(message.model_dump(exclude_none=True))
 
-        if response.stop_reason != "tool_use":
+        if not message.tool_calls:
             force = trigger_hooks("Stop", messages)
             if force:
                 messages.append({"role": "user", "content": force})
                 continue
             return
 
-        results = []
-        for block in response.content:
-            if block.type != "tool_use":
+        for tool_call in message.tool_calls:
+            try:
+                arguments = json.loads(tool_call.function.arguments)
+            except json.JSONDecodeError as e:
+                messages.append({"role": "tool", "tool_call_id": tool_call.id,
+                                 "content": f"Error: invalid tool arguments: {e}"})
                 continue
+            block = SimpleNamespace(name=tool_call.function.name, input=arguments)
 
             # s04 change: hook replaces hard-coded check_permission()
             blocked = trigger_hooks("PreToolUse", block)
             if blocked:
-                results.append({"type": "tool_result", "tool_use_id": block.id,
-                                "content": str(blocked)})
+                messages.append({"role": "tool", "tool_call_id": tool_call.id,
+                                 "content": str(blocked)})
                 continue
 
             handler = TOOL_HANDLERS.get(block.name)
@@ -229,16 +236,14 @@ def agent_loop(messages: list):
 
             trigger_hooks("PostToolUse", block, output)  # s04: post hook
 
-            results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
-
-        messages.append({"role": "user", "content": results})
+            messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": output})
 
 
 if __name__ == "__main__":
-    print("s04: Hooks - extension logic on hooks, loop stays clean")
+    print("s04: Hooks - extension logic on hooks, loop stays clean (DeepSeek)")
     print("Enter a question, press Enter to send. Type q to quit.\n")
 
-    history = []
+    history = [{"role": "system", "content": SYSTEM}]
     while True:
         try:
             query = input("\033[36ms04 >> \033[0m")
@@ -249,7 +254,5 @@ if __name__ == "__main__":
         trigger_hooks("UserPromptSubmit", query)
         history.append({"role": "user", "content": query})
         agent_loop(history)
-        for block in history[-1]["content"]:
-            if getattr(block, "type", None) == "text":
-                print(block.text)
+        print(history[-1].get("content") or "")
         print()
