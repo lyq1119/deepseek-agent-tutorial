@@ -5,6 +5,15 @@ s02_tool_use.py - Tools
 The agent loop from s01 does not change. This lesson adds four tools
 and a dispatch map:
 
+    +----------+      +-------+      +--------------------------+
+    |   User   | ---> |  LLM  | ---> | Tool Dispatch            |
+    |  prompt  |      |       |      | bash       -> run_bash   |
+    +----------+      +---+---+      | read_file  -> run_read   |
+                          ^          | write_file -> run_write  |
+                          |          | edit_file  -> run_edit   |
+                          +----------+ glob       -> run_glob   |
+                          tool_result+--------------------------+
+
   + run_read / run_write / run_edit / run_glob
   + TOOL_HANDLERS instead of a hard-coded run_bash call
   + safe_path to keep file tools inside the workspace
@@ -12,8 +21,6 @@ and a dispatch map:
 Key insight: the loop stays the same; only tool registration and dispatch grow.
 """
 
-import glob as g
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -27,15 +34,14 @@ try:
 except ImportError:
     pass
 
+from anthropic import Anthropic
 from dotenv import load_dotenv
-from openai import OpenAI
 
 load_dotenv(override=True)
-
 WORKDIR = Path.cwd()
-client = OpenAI(
+client = Anthropic(
     api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
+    base_url="https://api.deepseek.com/anthropic",
 )
 MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
@@ -102,6 +108,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 
 
 def run_glob(pattern: str) -> str:
+    import glob as g
     try:
         results = []
         for match in g.glob(pattern, root_dir=WORKDIR):
@@ -114,20 +121,17 @@ def run_glob(pattern: str) -> str:
 
 # -- New in s02: tool definitions (one tool in s01, five in s02) --
 
-def tool(name: str, description: str, properties: dict, required: list[str]) -> dict:
-    return {"type": "function", "function": {
-        "name": name,
-        "description": description,
-        "parameters": {"type": "object", "properties": properties, "required": required},
-    }}
-
-
 TOOLS = [
-    tool("bash", "Run a shell command.", {"command": {"type": "string"}}, ["command"]),
-    tool("read_file", "Read file contents.", {"path": {"type": "string"}, "limit": {"type": "integer"}}, ["path"]),
-    tool("write_file", "Write content to a file.", {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
-    tool("edit_file", "Replace exact text in a file once.", {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, ["path", "old_text", "new_text"]),
-    tool("glob", "Find files matching a glob pattern.", {"pattern": {"type": "string"}}, ["pattern"]),
+    {"name": "bash", "description": "Run a shell command.",
+     "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+    {"name": "read_file", "description": "Read file contents.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}},
+    {"name": "write_file", "description": "Write content to a file.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+    {"name": "edit_file", "description": "Replace exact text in a file once.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+    {"name": "glob", "description": "Find files matching a glob pattern.",
+     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
 ]
 
 # -- New in s02: dispatch map (replaces s01's hard-coded run_bash call) --
@@ -139,40 +143,37 @@ TOOL_HANDLERS = {
 
 
 # -- The agent loop keeps the same shape as s01; only dispatch changes --
+# s01: output = run_bash(block.input["command"])
+# s02: output = TOOL_HANDLERS[block.name](**block.input)
 
 def agent_loop(messages: list):
     while True:
-        response = client.chat.completions.create(
-            model=MODEL, messages=messages, tools=TOOLS, max_tokens=8000,
+        response = client.messages.create(
+            model=MODEL, system=SYSTEM, messages=messages,
+            tools=TOOLS, max_tokens=8000,
         )
-        message = response.choices[0].message
-        messages.append(message.model_dump(exclude_none=True))
+        messages.append({"role": "assistant", "content": response.content})
 
-        if not message.tool_calls:
+        if response.stop_reason != "tool_use":
             return
 
-        for tool_call in message.tool_calls:
-            name = tool_call.function.name
-            print(f"\033[33m> {name}\033[0m")
-            handler = TOOL_HANDLERS.get(name)
-            try:
-                arguments = json.loads(tool_call.function.arguments)
-                output = handler(**arguments) if handler else f"Unknown: {name}"
-            except (json.JSONDecodeError, TypeError) as e:
-                output = f"Error: invalid tool arguments: {e}"
-            print(str(output)[:200])
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": output,
-            })
+        results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                print(f"\033[33m> {block.name}\033[0m")
+                handler = TOOL_HANDLERS.get(block.name)
+                output = handler(**block.input) if handler else f"Unknown: {block.name}"
+                print(str(output)[:200])
+                results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
+
+        messages.append({"role": "user", "content": results})
 
 
 if __name__ == "__main__":
-    print("s02: Tool Use - four tools added to s01 (DeepSeek)")
+    print("s02: Tool Use - four tools added to s01")
     print("Enter a question, press Enter to send. Type q to quit.\n")
 
-    history = [{"role": "system", "content": SYSTEM}]
+    history = []
     while True:
         try:
             query = input("\033[36ms02 >> \033[0m")
@@ -182,5 +183,7 @@ if __name__ == "__main__":
             break
         history.append({"role": "user", "content": query})
         agent_loop(history)
-        print(history[-1].get("content") or "")
+        for block in history[-1]["content"]:
+            if getattr(block, "type", None) == "text":
+                print(block.text)
         print()

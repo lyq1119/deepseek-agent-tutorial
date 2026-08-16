@@ -1,12 +1,36 @@
 #!/usr/bin/env python3
-"""s03_permission.py - Permission System.
+"""
+s03_permission.py - Permission System
 
-Three gates are inserted before tool execution: a hard deny list, rule
-matching, and user approval. The agent loop itself remains the same as s02.
+Three gates inserted before tool execution:
+
+    Gate 1: Hard deny list (rm -rf /, sudo, ...)
+    Gate 2: Rule matching (write outside workspace? destructive cmd?)
+    Gate 3: User approval (pause and wait for confirmation)
+
+    +----------+      +-------+      +--------------+      +---------------+
+    |   User   | ---> |  LLM  | ---> | Permission   | ---> | Tool Dispatch |
+    |  prompt  |      |       |      | 1. deny list |      | execute       |
+    +----------+      +---+---+      | 2. rules     |      +-------+-------+
+                          ^          | 3. approval  |              |
+                          |          +------+-------+              |
+                          |                 | deny                 |
+                          |                 v                      v
+                          |          +-------------------------------+
+                          +----------+ tool_result: denied or output |
+                                     +-------------------------------+
+
+Only one line added to the agent loop:
+
+    if not check_permission(block):
+        continue
+
+Builds on s02 (multi-tool). Usage:
+
+    python s03_permission/code.py
+    Needs: pip install anthropic python-dotenv + ANTHROPIC_API_KEY in .env
 """
 
-import glob as g
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -20,15 +44,15 @@ try:
 except ImportError:
     pass
 
+from anthropic import Anthropic
 from dotenv import load_dotenv
-from openai import OpenAI
 
 load_dotenv(override=True)
 
 WORKDIR = Path.cwd()
-client = OpenAI(
+client = Anthropic(
     api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
+    base_url="https://api.deepseek.com/anthropic",
 )
 MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
@@ -80,6 +104,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 
 
 def run_glob(pattern: str) -> str:
+    import glob as g
     try:
         results = []
         for match in g.glob(pattern, root_dir=WORKDIR):
@@ -92,20 +117,17 @@ def run_glob(pattern: str) -> str:
 
 # -- From s02 (unchanged): tool definitions and dispatch --
 
-def tool(name: str, description: str, properties: dict, required: list[str]) -> dict:
-    return {"type": "function", "function": {
-        "name": name,
-        "description": description,
-        "parameters": {"type": "object", "properties": properties, "required": required},
-    }}
-
-
 TOOLS = [
-    tool("bash", "Run a shell command.", {"command": {"type": "string"}}, ["command"]),
-    tool("read_file", "Read file contents.", {"path": {"type": "string"}, "limit": {"type": "integer"}}, ["path"]),
-    tool("write_file", "Write content to a file.", {"path": {"type": "string"}, "content": {"type": "string"}}, ["path", "content"]),
-    tool("edit_file", "Replace exact text in a file once.", {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, ["path", "old_text", "new_text"]),
-    tool("glob", "Find files matching a glob pattern.", {"pattern": {"type": "string"}}, ["pattern"]),
+    {"name": "bash", "description": "Run a shell command.",
+     "input_schema": {"type": "object", "properties": {"command": {"type": "string"}}, "required": ["command"]}},
+    {"name": "read_file", "description": "Read file contents.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "limit": {"type": "integer"}}, "required": ["path"]}},
+    {"name": "write_file", "description": "Write content to a file.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
+    {"name": "edit_file", "description": "Replace exact text in a file once.",
+     "input_schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"]}},
+    {"name": "glob", "description": "Find files matching a glob pattern.",
+     "input_schema": {"type": "object", "properties": {"pattern": {"type": "string"}}, "required": ["pattern"]}},
 ]
 
 TOOL_HANDLERS = {
@@ -118,7 +140,6 @@ TOOL_HANDLERS = {
 
 # Gate 1: Hard deny list - always forbidden
 DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/sda"]
-
 
 def check_deny_list(command: str) -> str | None:
     for pattern in DENY_LIST:
@@ -137,7 +158,6 @@ PERMISSION_RULES = [
      "message": "Potentially destructive command"},
 ]
 
-
 def check_rules(tool_name: str, args: dict) -> str | None:
     for rule in PERMISSION_RULES:
         if tool_name in rule["tools"] and rule["check"](args):
@@ -154,15 +174,17 @@ def ask_user(tool_name: str, args: dict, reason: str) -> str:
 
 
 # Pipeline: all three gates chained
-def check_permission(tool_name: str, args: dict) -> bool:
-    if tool_name == "bash":
-        reason = check_deny_list(args.get("command", ""))
+def check_permission(block) -> bool:
+    if block.name == "bash":
+        reason = check_deny_list(block.input.get("command", ""))
         if reason:
             print(f"\n\033[31m[blocked] {reason}\033[0m")
             return False
-    reason = check_rules(tool_name, args)
-    if reason and ask_user(tool_name, args, reason) == "deny":
-        return False
+    reason = check_rules(block.name, block.input)
+    if reason:
+        decision = ask_user(block.name, block.input, reason)
+        if decision == "deny":
+            return False
     return True
 
 
@@ -170,40 +192,41 @@ def check_permission(tool_name: str, args: dict) -> bool:
 
 def agent_loop(messages: list):
     while True:
-        response = client.chat.completions.create(
-            model=MODEL, messages=messages, tools=TOOLS, max_tokens=8000,
+        response = client.messages.create(
+            model=MODEL, system=SYSTEM, messages=messages,
+            tools=TOOLS, max_tokens=8000,
         )
-        message = response.choices[0].message
-        messages.append(message.model_dump(exclude_none=True))
+        messages.append({"role": "assistant", "content": response.content})
 
-        if not message.tool_calls:
+        if response.stop_reason != "tool_use":
             return
 
-        for tool_call in message.tool_calls:
-            name = tool_call.function.name
-            print(f"\033[36m> {name}\033[0m")
-            try:
-                arguments = json.loads(tool_call.function.arguments)
-                if not check_permission(name, arguments):
-                    output = "Permission denied."
-                else:
-                    handler = TOOL_HANDLERS.get(name)
-                    output = handler(**arguments) if handler else f"Unknown: {name}"
-            except (json.JSONDecodeError, TypeError) as e:
-                output = f"Error: invalid tool arguments: {e}"
+        results = []
+        for block in response.content:
+            if block.type != "tool_use":
+                continue
+
+            print(f"\033[36m> {block.name}\033[0m")
+
+            # s03 change: run through permission pipeline before executing
+            if not check_permission(block):
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": "Permission denied."})
+                continue
+
+            handler = TOOL_HANDLERS.get(block.name)
+            output = handler(**block.input) if handler else f"Unknown: {block.name}"
             print(str(output)[:200])
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": output,
-            })
+            results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
+
+        messages.append({"role": "user", "content": results})
 
 
 if __name__ == "__main__":
-    print("s03: Permission (DeepSeek)")
+    print("s03: Permission")
     print("Enter a question, press Enter to send. Type q to quit.\n")
 
-    history = [{"role": "system", "content": SYSTEM}]
+    history = []
     while True:
         try:
             query = input("\033[36ms03 >> \033[0m")
@@ -213,5 +236,7 @@ if __name__ == "__main__":
             break
         history.append({"role": "user", "content": query})
         agent_loop(history)
-        print(history[-1].get("content") or "")
+        for block in history[-1]["content"]:
+            if getattr(block, "type", None) == "text":
+                print(block.text)
         print()
