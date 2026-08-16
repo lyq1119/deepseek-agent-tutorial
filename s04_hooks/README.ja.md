@@ -8,6 +8,9 @@ s01 → s02 → s03 → `s04` → [s05](../s05_todo_write/) → s06 → ... → 
 >
 > **Harness レイヤー**: フック — ループを侵襲しない拡張ポイント。
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## 課題
@@ -20,9 +23,9 @@ s03 の Agent には権限チェックがある。しかし新しいチェック
 def agent_loop(messages):
     while True:
         # ... LLM call ...
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for tool_call in message.tool_calls:
+            arguments = json.loads(tool_call.function.arguments)
+            block = SimpleNamespace(name=tool_call.function.name, input=arguments)
             log_to_file(block)          # 一行追加
             check_permission(block)     # 一行追加
             notify_slack(block)         # さらに一行追加
@@ -130,14 +133,12 @@ register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 ```
 
-**Stop** はループが終了する直前に発火する（`stop_reason != "tool_use"`）。以下の hook は終了時の統計を出力する：
+**Stop** はループが終了する直前に発火する（`not message.tool_calls`）。以下の hook は終了時の統計を出力する：
 
 ```python
 def summary_hook(messages: list) -> str | None:
     """Print a summary when the loop is about to stop."""
-    tool_count = sum(1 for m in messages
-                     for b in (m.get("content") if isinstance(m.get("content"), list) else [])
-                     if isinstance(b, dict) and b.get("type") == "tool_result")
+    tool_count = sum(m.get("role") == "tool" for m in messages)
     print(f"\033[90m[HOOK] Stop: session used {tool_count} tool calls\033[0m")
     return None   # return None = 終了を許可、return 文字列 = 強制続行
 
@@ -147,7 +148,7 @@ register_hook("Stop", summary_hook)
 agent_loop 内では、終了前に発火：
 
 ```python
-if response.stop_reason != "tool_use":
+if not message.tool_calls:
     force = trigger_hooks("Stop", messages)   # ← 終了する前に
     if force:
         # フックがメッセージを返した → 注入して続行
@@ -159,15 +160,15 @@ if response.stop_reason != "tool_use":
 **ループ内で変更されたのは一箇所だけ**：s03 は直接 `check_permission(block)` を呼び出していたが、s04 は `trigger_hooks("PreToolUse", block)` に置き換えた：
 
 ```python
-for block in response.content:
-    if block.type != "tool_use":
-        continue
+for tool_call in message.tool_calls:
+    arguments = json.loads(tool_call.function.arguments)
+    block = SimpleNamespace(name=tool_call.function.name, input=arguments)
 
     # s03: if not check_permission(block): ...
     # s04: フックがハードコードを代替
     blocked = trigger_hooks("PreToolUse", block)
     if blocked:
-        results.append({"type": "tool_result", "tool_use_id": block.id,
+        results.append({"role": "tool", "tool_call_id": tool_call.id,
                         "content": str(blocked)})
         continue
 
@@ -176,7 +177,7 @@ for block in response.content:
 
     trigger_hooks("PostToolUse", block, output)
 
-    results.append({"type": "tool_result", "tool_use_id": block.id,
+    results.append({"role": "tool", "tool_call_id": tool_call.id,
                     "content": output})
 ```
 

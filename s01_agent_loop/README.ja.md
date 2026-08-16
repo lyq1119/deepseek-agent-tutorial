@@ -2,10 +2,13 @@
 
 [English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
 
-`s01` → [s02](../s02_tool_use/) → s03 → s04 → ... → s16 → s17
+`s01` → [s02](../s02_tool call/) → s03 → s04 → ... → s16 → s17
 > *"One loop & Bash is all you need"* — ツール一つ + ループ一つ = 一つの Agent。
 >
 > **Harness レイヤー**: ループ — モデルと現実世界をつなぐ最初の架け橋。
+
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
 
 ---
 
@@ -29,8 +32,8 @@
 
 | シグナル | 意味 | ループの動作 |
 |----------|------|-------------|
-| `stop_reason == "tool_use"` | モデルが「ツールが必要」と挙手 | 実行 → 結果を戻す → 続行 |
-| `stop_reason != "tool_use"` | モデルが「完了」と宣言 | ループ終了 |
+| `message.tool_calls` | モデルが「ツールが必要」と挙手 | 実行 → 結果を戻す → 続行 |
+| `not message.tool_calls` | モデルが「完了」と宣言 | ループ終了 |
 
 ---
 
@@ -47,38 +50,38 @@ messages = [{"role": "user", "content": query}]
 **ステップ 2**：メッセージとツール定義を一緒に LLM に送信する。
 
 ```python
-response = client.messages.create(
-    model=MODEL, system=SYSTEM, messages=messages,
+response = client.chat.completions.create(
+    model=MODEL, messages=messages,
     tools=TOOLS, max_tokens=8000,
 )
+message = response.choices[0].message
 ```
 
 **ステップ 3**：モデルの応答を追加し、ツールを呼び出したか確認する。呼び出しなし → 終了。
 
 ```python
-messages.append({"role": "assistant", "content": response.content})
-if response.stop_reason != "tool_use":
+messages.append(message.model_dump(exclude_none=True))
+if not message.tool_calls:
     return
 ```
 
 **ステップ 4**：モデルが要求したツールを実行し、結果を収集する。
 
 ```python
-results = []
-for block in response.content:
-    if block.type == "tool_use":
-        output = run_bash(block.input["command"])
-        results.append({
-            "type": "tool_result",
-            "tool_use_id": block.id,
-            "content": output,
-        })
+for tool_call in message.tool_calls:
+    command = json.loads(tool_call.function.arguments)["command"]
+    output = run_bash(command)
+    messages.append({
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "content": output,
+    })
 ```
 
 **ステップ 5**：ツールの結果を新しいメッセージとして追加し、ステップ 2 に戻る。
 
 ```python
-messages.append({"role": "user", "content": results})
+# Tool results are appended inside the loop above.
 ```
 
 完全な関数に組み立てる：
@@ -86,25 +89,24 @@ messages.append({"role": "user", "content": results})
 ```python
 def agent_loop(messages):
     while True:
-        response = client.messages.create(
-            model=MODEL, system=SYSTEM, messages=messages,
+        response = client.chat.completions.create(
+            model=MODEL, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        message = response.choices[0].message
+        messages.append(message.model_dump(exclude_none=True))
 
-        if response.stop_reason != "tool_use":
+        if not message.tool_calls:
             return
 
-        results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                output = run_bash(block.input["command"])
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": output,
-                })
-        messages.append({"role": "user", "content": results})
+        for tool_call in message.tool_calls:
+            command = json.loads(tool_call.function.arguments)["command"]
+            output = run_bash(command)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": output,
+            })
 ```
 
 30 行未満 — これが最小実行可能な agent harness のカーネルだ。これは知能そのものではなく、モデルが継続的に行動できるための最小ランタイムフレームワーク。モデルが決定し（ツールを呼ぶか、どれを呼ぶか）、harness が実行を担う（ツールを呼び出し、結果を新しいメッセージとして追加する）。次の 16 章はすべてこのループの上に仕組みを積み重ねていく。ループ自体は永遠に変わらない。

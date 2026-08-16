@@ -2,10 +2,13 @@
 
 [English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
 
-`s01` → [s02](../s02_tool_use/) → s03 → s04 → ... → s16 → s17
+`s01` → [s02](../s02_tool call/) → s03 → s04 → ... → s16 → s17
 > *"One loop & Bash is all you need"* — One tool + one loop = one Agent.
 >
 > **Harness Layer**: The Loop — the first bridge between the model and the real world.
+
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
 
 ---
 
@@ -29,8 +32,8 @@ A `while True` loop: keep going when the model calls a tool, stop when it doesn'
 
 | Signal | Meaning | Loop Action |
 |--------|---------|-------------|
-| `stop_reason == "tool_use"` | Model raises hand: "I need a tool" | Execute → feed result back → continue |
-| `stop_reason != "tool_use"` | Model says: "I'm done" | Exit loop |
+| `message.tool_calls` | Model raises hand: "I need a tool" | Execute → feed result back → continue |
+| `not message.tool_calls` | Model says: "I'm done" | Exit loop |
 
 ---
 
@@ -47,38 +50,38 @@ messages = [{"role": "user", "content": query}]
 **Step 2**: Send the messages and tool definitions to the LLM.
 
 ```python
-response = client.messages.create(
-    model=MODEL, system=SYSTEM, messages=messages,
+response = client.chat.completions.create(
+    model=MODEL, messages=messages,
     tools=TOOLS, max_tokens=8000,
 )
+message = response.choices[0].message
 ```
 
 **Step 3**: Append the model's response and check whether it called a tool. No tool call → done.
 
 ```python
-messages.append({"role": "assistant", "content": response.content})
-if response.stop_reason != "tool_use":
+messages.append(message.model_dump(exclude_none=True))
+if not message.tool_calls:
     return
 ```
 
 **Step 4**: Execute the tool the model requested and collect the results.
 
 ```python
-results = []
-for block in response.content:
-    if block.type == "tool_use":
-        output = run_bash(block.input["command"])
-        results.append({
-            "type": "tool_result",
-            "tool_use_id": block.id,
-            "content": output,
-        })
+for tool_call in message.tool_calls:
+    command = json.loads(tool_call.function.arguments)["command"]
+    output = run_bash(command)
+    messages.append({
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "content": output,
+    })
 ```
 
 **Step 5**: Append the tool results as a new message and go back to Step 2.
 
 ```python
-messages.append({"role": "user", "content": results})
+# Tool results are appended inside the loop above.
 ```
 
 Assembled into a complete function:
@@ -86,25 +89,24 @@ Assembled into a complete function:
 ```python
 def agent_loop(messages):
     while True:
-        response = client.messages.create(
-            model=MODEL, system=SYSTEM, messages=messages,
+        response = client.chat.completions.create(
+            model=MODEL, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        message = response.choices[0].message
+        messages.append(message.model_dump(exclude_none=True))
 
-        if response.stop_reason != "tool_use":
+        if not message.tool_calls:
             return
 
-        results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                output = run_bash(block.input["command"])
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": output,
-                })
-        messages.append({"role": "user", "content": results})
+        for tool_call in message.tool_calls:
+            command = json.loads(tool_call.function.arguments)["command"]
+            output = run_bash(command)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": output,
+            })
 ```
 
 Under 30 lines — that's the minimal runnable agent harness kernel. It's not intelligence itself, but the smallest runtime framework that lets the model keep acting. The model decides (whether to call a tool, which one), the harness executes (calls the tool and appends the result as a new message). The next 16 chapters all add mechanisms on top of this loop. The loop itself never changes.

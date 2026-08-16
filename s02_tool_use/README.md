@@ -7,6 +7,9 @@ s01 → `s02` → [s03](../s03_permission/) → s04 → ... → s16 → s17
 >
 > **Harness Layer**: Tool Dispatch — Expanding the model's reach.
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## Only One Tool: Bash
@@ -21,7 +24,7 @@ The model thinks "read this file" but has to spell out `cat path/to/file`. An ex
 
 ![Tool Dispatch](images/tool-dispatch.en.svg)
 
-The s01 loop is fully preserved (LLM call, stop_reason check, message append — not a single word changed). The only change is in that one line of tool execution: `run_bash()` is replaced with `TOOL_HANDLERS[block.name]()` dispatch lookup.
+The s01 loop is fully preserved (LLM call, tool_calls check check, message append — not a single word changed). The only change is in that one line of tool execution: `run_bash()` is replaced with `TOOL_HANDLERS[block.name]()` dispatch lookup.
 
 Adding a tool to the Agent requires just two things:
 
@@ -91,11 +94,14 @@ TOOL_HANDLERS = {
 }
 
 # Only one line changed in the loop — from hardcoded run_bash to dispatch lookup:
-for block in response.content:
-    if block.type == "tool_use":
-        handler = TOOL_HANDLERS[block.name]    # lookup
-        output = handler(**block.input)         # call
-        results.append(...)
+for tool_call in message.tool_calls:
+    name = tool_call.function.name
+    arguments = json.loads(tool_call.function.arguments)
+    handler = TOOL_HANDLERS[name]
+    output = handler(**arguments)
+    messages.append({
+        "role": "tool", "tool_call_id": tool_call.id, "content": output,
+    })
 ```
 
 Adding a tool = one entry in `TOOLS` array + one line in `TOOL_HANDLERS` dict. The loop stays the same.
@@ -104,9 +110,9 @@ Adding a tool = one entry in `TOOLS` array + one line in `TOOL_HANDLERS` dict. T
 
 ## Multiple Tool Calls
 
-The model often returns multiple tool_use calls at once — "read a.py and b.py, then list all .py files".
+The model often returns multiple tool calls at once — "read a.py and b.py, then list all .py files".
 
-Calls are executed one by one in their original `response.content` order.
+Calls are executed one by one in their original `message.tool_calls` order.
 
 ---
 
@@ -116,7 +122,7 @@ Calls are executed one by one in their original `response.content` order.
 |---------|-----------|
 | TOOL_HANDLERS | Tool name → handler function dict. Add a tool = add one mapping line |
 | Tool Definition | JSON schema telling the model "what I can do" |
-| Multiple tool calls | Model may return multiple tool_use at once; calls execute in their original order |
+| Multiple tool calls | Model may return multiple tool call at once; calls execute in their original order |
 | Loop Unchanged | s01's `while True` loop — not a single line changed |
 
 ---
@@ -128,7 +134,7 @@ Calls are executed one by one in their original `response.content` order.
 | Tool count | 1 (bash) | 5 (+read, write, edit, glob) |
 | Tool execution | Hardcoded `run_bash()` | TOOL_HANDLERS dispatch lookup |
 | Path safety | None | safe_path validation (file tools only) |
-| Loop | `while True` + `stop_reason` | Identical to s01 |
+| Loop | `while True` + `tool_calls check` | Identical to s01 |
 
 ---
 
@@ -136,7 +142,7 @@ Calls are executed one by one in their original `response.content` order.
 
 ```sh
 cd deepseek-agent-tutorial
-python s02_tool_use/code.py
+python s02_tool call/code.py
 ```
 
 Try these prompts:

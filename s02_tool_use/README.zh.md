@@ -7,6 +7,9 @@ s01 → `s02` → [s03](../s03_permission/) → s04 → ... → s16 → s17
 >
 > **Harness 层**: 工具分发 — 扩展模型能触达的边界。
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## 只有 bash 一个工具
@@ -21,7 +24,7 @@ s01 的 Agent 只有一个 bash 工具。读文件要 `cat`，写文件要 `echo
 
 ![Tool Dispatch](images/tool-dispatch.svg)
 
-s01 的循环完全保留（LLM 调用、stop_reason 判断、消息追加）。唯一的变动在工具执行那 1 行：`run_bash()` 替换为 `TOOL_HANDLERS[block.name]()` 查表分发。
+s01 的循环完全保留（LLM 调用、tool_calls check 判断、消息追加）。唯一的变动在工具执行那 1 行：`run_bash()` 替换为 `TOOL_HANDLERS[block.name]()` 查表分发。
 
 给 Agent 加一个工具只需要做两件事：
 
@@ -91,11 +94,14 @@ TOOL_HANDLERS = {
 }
 
 # 循环里只改了一行——从硬编码 run_bash 变成查表：
-for block in response.content:
-    if block.type == "tool_use":
-        handler = TOOL_HANDLERS[block.name]    # 查表
-        output = handler(**block.input)         # 调用
-        results.append(...)
+for tool_call in message.tool_calls:
+    name = tool_call.function.name
+    arguments = json.loads(tool_call.function.arguments)
+    handler = TOOL_HANDLERS[name]
+    output = handler(**arguments)
+    messages.append({
+        "role": "tool", "tool_call_id": tool_call.id, "content": output,
+    })
 ```
 
 加一个工具 = 在 `TOOLS` 数组加一条 + 在 `TOOL_HANDLERS` 字典加一行。循环不变。
@@ -104,9 +110,9 @@ for block in response.content:
 
 ## 多个工具调用
 
-模型经常一次返回多个 tool_use："读一下 a.py 和 b.py，然后列出所有 .py 文件"。
+模型经常一次返回多个 tool call："读一下 a.py 和 b.py，然后列出所有 .py 文件"。
 
-这些调用按照 `response.content` 中的原始顺序逐个执行。
+这些调用按照 `message.tool_calls` 中的原始顺序逐个执行。
 
 ---
 
@@ -116,7 +122,7 @@ for block in response.content:
 |------|--------|
 | TOOL_HANDLERS | 工具名 → 处理函数的字典。加工具 = 加一行映射 |
 | 工具定义 | 告诉模型"我能做什么"的 JSON schema |
-| 多工具调用 | 模型可一次返回多个 tool_use，并按原始顺序逐个执行 |
+| 多工具调用 | 模型可一次返回多个 tool call，并按原始顺序逐个执行 |
 | 循环不变 | s01 的 `while True` 循环一行都没改 |
 
 ---
@@ -128,7 +134,7 @@ for block in response.content:
 | 工具数量 | 1 (bash) | 5 (+read, write, edit, glob) |
 | 工具执行 | 硬编码 `run_bash()` | TOOL_HANDLERS 查表分发 |
 | 路径安全 | 无 | safe_path 校验（仅 file tools） |
-| 循环 | `while True` + `stop_reason` | 与 s01 完全一致 |
+| 循环 | `while True` + `tool_calls check` | 与 s01 完全一致 |
 
 ---
 
@@ -136,7 +142,7 @@ for block in response.content:
 
 ```sh
 cd deepseek-agent-tutorial
-python s02_tool_use/code.py
+python s02_tool call/code.py
 ```
 
 试试这些 prompt：

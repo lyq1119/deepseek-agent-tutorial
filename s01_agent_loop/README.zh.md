@@ -2,10 +2,13 @@
 
 [English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
 
-`s01` → [s02](../s02_tool_use/) → s03 → s04 → ... → s16 → s17
+`s01` → [s02](../s02_tool call/) → s03 → s04 → ... → s16 → s17
 > *"One loop & Bash is all you need"* — 一个工具 + 一个循环 = 一个 Agent。
 >
 > **Harness 层**: 循环 — 模型与真实世界的第一道连接。
+
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
 
 ---
 
@@ -29,8 +32,8 @@
 
 | 信号 | 含义 | 循环动作 |
 |------|------|---------|
-| `stop_reason == "tool_use"` | 模型举手说"我要用工具" | 执行 → 结果喂回去 → 继续 |
-| `stop_reason != "tool_use"` | 模型说"我做完了" | 退出循环 |
+| `message.tool_calls` | 模型举手说"我要用工具" | 执行 → 结果喂回去 → 继续 |
+| `not message.tool_calls` | 模型说"我做完了" | 退出循环 |
 
 ---
 
@@ -47,38 +50,38 @@ messages = [{"role": "user", "content": query}]
 **第 2 步**：将消息和工具定义一起发给 LLM。
 
 ```python
-response = client.messages.create(
-    model=MODEL, system=SYSTEM, messages=messages,
+response = client.chat.completions.create(
+    model=MODEL, messages=messages,
     tools=TOOLS, max_tokens=8000,
 )
+message = response.choices[0].message
 ```
 
 **第 3 步**：追加模型回答，检查它是否调了工具。没调 → 结束。
 
 ```python
-messages.append({"role": "assistant", "content": response.content})
-if response.stop_reason != "tool_use":
+messages.append(message.model_dump(exclude_none=True))
+if not message.tool_calls:
     return
 ```
 
 **第 4 步**：执行模型要求的工具，收集结果。
 
 ```python
-results = []
-for block in response.content:
-    if block.type == "tool_use":
-        output = run_bash(block.input["command"])
-        results.append({
-            "type": "tool_result",
-            "tool_use_id": block.id,
-            "content": output,
-        })
+for tool_call in message.tool_calls:
+    command = json.loads(tool_call.function.arguments)["command"]
+    output = run_bash(command)
+    messages.append({
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "content": output,
+    })
 ```
 
 **第 5 步**：把工具结果作为新消息追加，回到第 2 步。
 
 ```python
-messages.append({"role": "user", "content": results})
+# Tool results are appended inside the loop above.
 ```
 
 组装为一个完整函数：
@@ -86,25 +89,24 @@ messages.append({"role": "user", "content": results})
 ```python
 def agent_loop(messages):
     while True:
-        response = client.messages.create(
-            model=MODEL, system=SYSTEM, messages=messages,
+        response = client.chat.completions.create(
+            model=MODEL, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
-        messages.append({"role": "assistant", "content": response.content})
+        message = response.choices[0].message
+        messages.append(message.model_dump(exclude_none=True))
 
-        if response.stop_reason != "tool_use":
+        if not message.tool_calls:
             return
 
-        results = []
-        for block in response.content:
-            if block.type == "tool_use":
-                output = run_bash(block.input["command"])
-                results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": output,
-                })
-        messages.append({"role": "user", "content": results})
+        for tool_call in message.tool_calls:
+            command = json.loads(tool_call.function.arguments)["command"]
+            output = run_bash(command)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": output,
+            })
 ```
 
 不到 30 行，这就是最小可运行的 agent harness 内核。它为模型提供持续行动的最小运行框架：模型负责决策（要不要调工具、调哪个），harness 负责执行（调用工具，把结果作为新消息追加）。后面 16 个章节都在这个循环上叠加机制，循环本身始终不变。

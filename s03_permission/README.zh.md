@@ -7,6 +7,9 @@ s01 → s02 → `s03` → [s04](../s04_hooks/) → s05 → ... → s16 → s17
 >
 > **Harness 层**: 权限 — 在工具执行前加一道门。
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## 问题
@@ -90,30 +93,31 @@ def ask_user(tool_name: str, args: dict, reason: str) -> str:
 **三道闸门串在一起**，插在工具执行之前：
 
 ```python
-def check_permission(block) -> bool:
+def check_permission(tool_name: str, args: dict) -> bool:
     # 闸门 1: 硬拒绝
-    if block.name == "bash":
-        reason = check_deny_list(block.input.get("command", ""))
+    if tool_name == "bash":
+        reason = check_deny_list(args.get("command", ""))
         if reason:
             print(f"\n⛔ {reason}")
             return False
 
     # 闸门 2 + 3: 规则匹配 → 用户审批
-    reason = check_rules(block.name, block.input)
+    reason = check_rules(tool_name, args)
     if reason:
-        decision = ask_user(block.name, block.input, reason)
+        decision = ask_user(tool_name, args, reason)
         if decision == "deny":
             return False
 
     return True
 
 # 在 agent_loop 中——s02 的循环只加了一行：
-for block in response.content:
-    if block.type == "tool_use":
-        if not check_permission(block):           # ← 新增
+for tool_call in message.tool_calls:
+    name = tool_call.function.name
+    arguments = json.loads(tool_call.function.arguments)
+        if not check_permission(name, arguments):           # ← 新增
             results.append({... "content": "Permission denied."})
             continue
-        output = TOOL_HANDLERS[block.name](**block.input)  # s02 原有
+        output = TOOL_HANDLERS[name](**arguments)  # s02 原有
         results.append(...)
 ```
 

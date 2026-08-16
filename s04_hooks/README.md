@@ -8,6 +8,9 @@ s01 → s02 → s03 → `s04` → [s05](../s05_todo_write/) → s06 → ... → 
 >
 > **Harness Layer**: Hooks — Extension points that don't invade the loop.
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## The Problem
@@ -20,9 +23,9 @@ The loop quickly becomes this:
 def agent_loop(messages):
     while True:
         # ... LLM call ...
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for tool_call in message.tool_calls:
+            arguments = json.loads(tool_call.function.arguments)
+            block = SimpleNamespace(name=tool_call.function.name, input=arguments)
             log_to_file(block)          # added a line
             check_permission(block)     # added a line
             notify_slack(block)         # added another line
@@ -55,6 +58,15 @@ Extensions are added via `register_hook()`. The loop only calls `trigger_hooks()
 ---
 
 ## How It Works
+
+```python
+# DeepSeek/OpenAI tool-call adapter used by code.py
+for tool_call in message.tool_calls:
+    arguments = json.loads(tool_call.function.arguments)
+    block = SimpleNamespace(name=tool_call.function.name, input=arguments)
+    # Existing hooks can keep using block.name and block.input.
+```
+
 
 **Hook registry**: a dict mapping event names to callback lists.
 
@@ -130,14 +142,12 @@ register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 ```
 
-**Stop** triggers when the loop is about to exit (`stop_reason != "tool_use"`). The following hook prints a cleanup summary:
+**Stop** triggers when the loop is about to exit (`not message.tool_calls`). The following hook prints a cleanup summary:
 
 ```python
 def summary_hook(messages: list) -> str | None:
     """Print a summary when the loop is about to stop."""
-    tool_count = sum(1 for m in messages
-                     for b in (m.get("content") if isinstance(m.get("content"), list) else [])
-                     if isinstance(b, dict) and b.get("type") == "tool_result")
+    tool_count = sum(m.get("role") == "tool" for m in messages)
     print(f"\033[90m[HOOK] Stop: session used {tool_count} tool calls\033[0m")
     return None   # return None = allow stop, return string = force continuation
 
@@ -147,7 +157,7 @@ register_hook("Stop", summary_hook)
 In agent_loop, triggered before exit:
 
 ```python
-if response.stop_reason != "tool_use":
+if not message.tool_calls:
     force = trigger_hooks("Stop", messages)   # ← before exiting
     if force:
         # hook returned a message → inject it and continue
@@ -159,15 +169,15 @@ if response.stop_reason != "tool_use":
 **Only one change in the loop**: s03 directly called `check_permission(block)`, s04 replaces it with `trigger_hooks("PreToolUse", block)`:
 
 ```python
-for block in response.content:
-    if block.type != "tool_use":
-        continue
+for tool_call in message.tool_calls:
+    arguments = json.loads(tool_call.function.arguments)
+    block = SimpleNamespace(name=tool_call.function.name, input=arguments)
 
     # s03: if not check_permission(block): ...
     # s04: hooks replace hardcoding
     blocked = trigger_hooks("PreToolUse", block)
     if blocked:
-        results.append({"type": "tool_result", "tool_use_id": block.id,
+        results.append({"role": "tool", "tool_call_id": tool_call.id,
                         "content": str(blocked)})
         continue
 
@@ -176,7 +186,7 @@ for block in response.content:
 
     trigger_hooks("PostToolUse", block, output)
 
-    results.append({"type": "tool_result", "tool_use_id": block.id,
+    results.append({"role": "tool", "tool_call_id": tool_call.id,
                     "content": output})
 ```
 

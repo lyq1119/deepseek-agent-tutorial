@@ -7,6 +7,9 @@ s01 → s02 → `s03` → [s04](../s04_hooks/) → s05 → ... → s16 → s17
 >
 > **Harness レイヤー**: 権限 — ツール実行前に一つのゲートを追加。
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## 課題
@@ -90,30 +93,31 @@ def ask_user(tool_name: str, args: dict, reason: str) -> str:
 **3 つのゲートを直列に接続**、ツール実行前に挿入する：
 
 ```python
-def check_permission(block) -> bool:
+def check_permission(tool_name: str, args: dict) -> bool:
     # ゲート 1: ハード拒否
-    if block.name == "bash":
-        reason = check_deny_list(block.input.get("command", ""))
+    if tool_name == "bash":
+        reason = check_deny_list(args.get("command", ""))
         if reason:
             print(f"\n⛔ {reason}")
             return False
 
     # ゲート 2 + 3: ルールマッチング → ユーザー承認
-    reason = check_rules(block.name, block.input)
+    reason = check_rules(tool_name, args)
     if reason:
-        decision = ask_user(block.name, block.input, reason)
+        decision = ask_user(tool_name, args, reason)
         if decision == "deny":
             return False
 
     return True
 
 # agent_loop で — s02 のループに 1 行追加するだけ：
-for block in response.content:
-    if block.type == "tool_use":
-        if not check_permission(block):           # ← 新規
+for tool_call in message.tool_calls:
+    name = tool_call.function.name
+    arguments = json.loads(tool_call.function.arguments)
+        if not check_permission(name, arguments):           # ← 新規
             results.append({... "content": "Permission denied."})
             continue
-        output = TOOL_HANDLERS[block.name](**block.input)  # s02 既存
+        output = TOOL_HANDLERS[name](**arguments)  # s02 既存
         results.append(...)
 ```
 

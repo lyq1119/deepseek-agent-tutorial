@@ -7,6 +7,9 @@ s01 → `s02` → [s03](../s03_permission/) → s04 → ... → s16 → s17
 >
 > **Harness レイヤー**: ツールディスパッチ — モデルが触れる範囲を拡張。
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## ツールは bash 一つだけ
@@ -21,7 +24,7 @@ s01 の Agent には bash 一つのツールしかない。ファイルを読む
 
 ![Tool Dispatch](images/tool-dispatch.ja.svg)
 
-s01 のループは完全に保持される（LLM 呼び出し、stop_reason 判定、メッセージ追加 — 一文字も変更なし）。唯一の変更点はツール実行の 1 行：`run_bash()` が `TOOL_HANDLERS[block.name]()` の検索ディスパッチに置き換わる。
+s01 のループは完全に保持される（LLM 呼び出し、tool_calls check 判定、メッセージ追加 — 一文字も変更なし）。唯一の変更点はツール実行の 1 行：`run_bash()` が `TOOL_HANDLERS[block.name]()` の検索ディスパッチに置き換わる。
 
 Agent にツールを追加するには、たった二つ：
 
@@ -91,11 +94,14 @@ TOOL_HANDLERS = {
 }
 
 # ループ内で変更されたのは一行だけ — ハードコードの run_bash から検索ディスパッチへ：
-for block in response.content:
-    if block.type == "tool_use":
-        handler = TOOL_HANDLERS[block.name]    # 検索
-        output = handler(**block.input)         # 呼び出し
-        results.append(...)
+for tool_call in message.tool_calls:
+    name = tool_call.function.name
+    arguments = json.loads(tool_call.function.arguments)
+    handler = TOOL_HANDLERS[name]
+    output = handler(**arguments)
+    messages.append({
+        "role": "tool", "tool_call_id": tool_call.id, "content": output,
+    })
 ```
 
 ツールの追加 = `TOOLS` 配列に一条 + `TOOL_HANDLERS` 辞書に一行。ループは変わらない。
@@ -104,9 +110,9 @@ for block in response.content:
 
 ## 複数のツール呼び出し
 
-モデルはよく一度に複数の tool_use を返す — 「a.py と b.py を読んで、全 .py ファイルを列挙して」。
+モデルはよく一度に複数の tool call を返す — 「a.py と b.py を読んで、全 .py ファイルを列挙して」。
 
-これらの呼び出しは、`response.content` に現れる元の順序で一つずつ実行する。
+これらの呼び出しは、`message.tool_calls` に現れる元の順序で一つずつ実行する。
 
 ---
 
@@ -116,7 +122,7 @@ for block in response.content:
 |------|--------|
 | TOOL_HANDLERS | ツール名 → ハンドラ関数の辞書。ツール追加 = マッピング一行追加 |
 | ツール定義 | モデルに「何ができるか」を伝える JSON schema |
-| 複数ツール呼び出し | モデルは一度に複数の tool_use を返す可能性があり、元の順序で一つずつ実行する |
+| 複数ツール呼び出し | モデルは一度に複数の tool call を返す可能性があり、元の順序で一つずつ実行する |
 | ループ不変 | s01 の `while True` ループ — 一行も変更なし |
 
 ---
@@ -128,7 +134,7 @@ for block in response.content:
 | ツール数 | 1 (bash) | 5 (+read, write, edit, glob) |
 | ツール実行 | ハードコード `run_bash()` | TOOL_HANDLERS 検索ディスパッチ |
 | パス安全性 | なし | safe_path 検証（file tools のみ） |
-| ループ | `while True` + `stop_reason` | s01 と完全に同一 |
+| ループ | `while True` + `tool_calls check` | s01 と完全に同一 |
 
 ---
 
@@ -136,7 +142,7 @@ for block in response.content:
 
 ```sh
 cd deepseek-agent-tutorial
-python s02_tool_use/code.py
+python s02_tool call/code.py
 ```
 
 以下のプロンプトを試してみよう：

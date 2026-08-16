@@ -8,6 +8,9 @@ s01 → s02 → s03 → `s04` → [s05](../s05_todo_write/) → s06 → ... → 
 >
 > **Harness 层**: hook — 扩展点不侵入循环。
 
+
+> **DeepSeek implementation note**: This repository uses DeepSeek's OpenAI-compatible API. The runnable `code.py` calls `client.chat.completions.create(...)`, reads `response.choices[0].message`, checks `message.tool_calls`, and sends each result as a `{"role": "tool", "tool_call_id": ...}` message.
+
 ---
 
 ## 问题
@@ -20,9 +23,9 @@ s03 的 Agent 有权限检查了。但每次加一个新检查，比如"记录�
 def agent_loop(messages):
     while True:
         # ... LLM call ...
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        for tool_call in message.tool_calls:
+            arguments = json.loads(tool_call.function.arguments)
+            block = SimpleNamespace(name=tool_call.function.name, input=arguments)
             log_to_file(block)          # 加一行
             check_permission(block)     # 加一行
             notify_slack(block)         # 又加一行
@@ -130,14 +133,12 @@ register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 ```
 
-**Stop** 在循环即将退出时触发（`stop_reason != "tool_use"`）。以下 hook 打印收尾统计：
+**Stop** 在循环即将退出时触发（`not message.tool_calls`）。以下 hook 打印收尾统计：
 
 ```python
 def summary_hook(messages: list) -> str | None:
     """Print a summary when the loop is about to stop."""
-    tool_count = sum(1 for m in messages
-                     for b in (m.get("content") if isinstance(m.get("content"), list) else [])
-                     if isinstance(b, dict) and b.get("type") == "tool_result")
+    tool_count = sum(m.get("role") == "tool" for m in messages)
     print(f"\033[90m[HOOK] Stop: session used {tool_count} tool calls\033[0m")
     return None   # return None = allow stop, return string = force continuation
 
@@ -147,7 +148,7 @@ register_hook("Stop", summary_hook)
 在 agent_loop 中，退出前触发：
 
 ```python
-if response.stop_reason != "tool_use":
+if not message.tool_calls:
     force = trigger_hooks("Stop", messages)   # ← 退出之前
     if force:
         # hook returned a message → inject it and continue
@@ -159,15 +160,15 @@ if response.stop_reason != "tool_use":
 **循环里只改了一处**：s03 直接调用 `check_permission(block)`，s04 改为 `trigger_hooks("PreToolUse", block)`：
 
 ```python
-for block in response.content:
-    if block.type != "tool_use":
-        continue
+for tool_call in message.tool_calls:
+    arguments = json.loads(tool_call.function.arguments)
+    block = SimpleNamespace(name=tool_call.function.name, input=arguments)
 
     # s03: if not check_permission(block): ...
     # s04: hook 替代硬编码
     blocked = trigger_hooks("PreToolUse", block)
     if blocked:
-        results.append({"type": "tool_result", "tool_use_id": block.id,
+        results.append({"role": "tool", "tool_call_id": tool_call.id,
                         "content": str(blocked)})
         continue
 
@@ -176,7 +177,7 @@ for block in response.content:
 
     trigger_hooks("PostToolUse", block, output)
 
-    results.append({"type": "tool_result", "tool_use_id": block.id,
+    results.append({"role": "tool", "tool_call_id": tool_call.id,
                     "content": output})
 ```
 
