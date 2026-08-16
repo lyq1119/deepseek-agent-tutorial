@@ -126,7 +126,7 @@ cp .env.example .env
 **Run**:
 
 ```sh
-python code.py
+python s01_agent_loop/code.py
 ```
 
 Try these prompts:
