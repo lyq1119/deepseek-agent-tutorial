@@ -1,0 +1,24 @@
+(base) yuqi@bogon deepseek-agent-tutorial % python code.py
+s01: Agent Loop (DeepSeek)
+Enter a question, press Enter to send. Type q to quit.
+
+s01 >> Create a file called hello.py that prints "Hello, World!"
+$ printf 'print("Hello, World!")\n' > hello.py && cat hello.py
+print("Hello, World!")
+$ python3 hello.py
+Hello, World!
+Done. Created `hello.py` which prints "Hello, World!" when run.
+
+s01 >> List all Python files in this directory
+$ ls -1 *.py
+code.py
+hello.py
+The Python files in this directory are:
+
+- `code.py`
+- `hello.py`
+
+s01 >> What is the current git branch?
+$ git branch --show-current
+main
+The current git branch is `main`.
