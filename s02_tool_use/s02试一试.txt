@@ -1,0 +1,142 @@
+(base) yuqi@bogon deepseek-agent-tutorial % python s02_tool_use/code.py
+s02: Tool Use - four tools added to s01 (DeepSeek)
+Enter a question, press Enter to send. Type q to quit.
+
+s02 >> Read the file README.md and tell me what this project is about
+> read_file
+Error: [Errno 2] No such file or directory: '/Users/yuqi/Desktop/我的大学/大一到大二暑假/deepseek-agent-tutorial/README.md'
+> bash
+total 64
+drwxr-xr-x@ 10 yuqi  staff    320  8月 16 18:39 .
+drwxr-xr-x  28 yuqi  staff    896  8月 16 09:57 ..
+-rw-r--r--@  1 yuqi  staff  14340  8月 16 18:44 .DS_Store
+-rw-r--r--@  1 yuqi  staff    233
+> bash
+./s01_agent_loop/README.zh.md
+./s01_agent_loop/README.md
+./s01_agent_loop/README.ja.md
+./s02_tool_use/README.zh.md
+./s02_tool_use/README.md
+./s02_tool_use/README.ja.md
+> bash
+./requirements.txt
+./s01_agent_loop/README.zh.md
+./s01_agent_loop/hello.py
+./s01_agent_loop/s01试一试.txt
+./s01_agent_loop/images/agent-loop.ja.svg
+./s01_agent_loop/images/agent-loop.en.svg
+./s01_agent_l
+> read_file
+# s01: The Agent Loop — One Loop Is All You Need
+
+[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
+
+`s01` → [s02](../s02_tool_use/) → s03 → s04 → ... → s16 → s17
+> *"One loop & Bash is
+> read_file
+# s02: Tool Use — Add a Tool, Add Just One Line
+
+[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
+
+s01 → `s02` → [s03](../s03_permission/) → s04 → ... → s16 → s17
+> *"Add a tool, add ju
+> read_file
+openai>=1.0.0
+python-dotenv>=1.0.0
+> read_file
+#!/usr/bin/env python3
+"""
+s02_tool_use.py - Tools
+
+The agent loop from s01 does not change. This lesson adds four tools
+and a dispatch map:
+
+  + run_read / run_write / run_edit / run_glob
+  + TOOL_HA
+Here's what I found:
+
+**There is no `README.md` at the project root**, but the project is clearly a tutorial/workshop series called **deepseek-agent-tutorial**. It's a step-by-step guide (s01 → s02 → ... → s17) for building AI agents powered by the **DeepSeek API** (using the OpenAI SDK with `base_url="https://api.deepseek.com"`).
+
+The two chapters present so far are:
+
+**s01: The Agent Loop — "One Loop Is All You Need"**
+- The core concept: a `while True` loop that keeps the model acting. When the model calls a tool (`stop_reason == "tool_use"`), the harness executes it and feeds the result back; when it stops calling tools, the loop exits.
+- The model only has **one tool: bash** (run shell commands).
+- The minimal agent harness kernel is under 30 lines.
+
+**s02: Tool Use — "Add a Tool, Add Just One Line"**
+- Extends s01 from 1 tool to **5 tools**: `bash`, `read_file`, `write_file`, `edit_file`, `glob`.
+- Introduces a `TOOL_HANDLERS` dispatch map, replacing the hard-coded `run_bash` call. Adding a tool = one entry in the `TOOLS` array + one line in the dispatch dict.
+- Adds `safe_path` validation so file tools stay inside the workspace, and a small guard blocking dangerous bash commands.
+- Supports multiple tool calls in one response, executed in order.
+
+The project includes runnable `code.py` scripts (an interactive REPL), READMEs in English/中文/日本語, architecture SVG diagrams, a `.env` for the DeepSeek API key, and `requirements.txt` (`openai`, `python-dotenv`). The roadmap mentions future chapters like s03 "Permission" (adding approval gates before tool execution).
+
+Since there's no root README, would you like me to create one summarizing the project?
+
+s02 >> Create a file called test.py that prints "hello", then read it back
+
+> write_file
+Wrote 15 bytes to /Users/yuqi/Desktop/我的大学/大一到大二暑假/deepseek-agent-tutorial/test.py
+> read_file
+print("hello")
+Done!
+
+1. **Created** `test.py` with the content `print("hello")`.
+2. **Read it back** — its contents are:
+
+```python
+print("hello")
+```
+
+The file is located at `/Users/yuqi/Desktop/我的大学/大一到大二暑假/deepseek-agent-tutorial/test.py`. Want me to run it to confirm it prints "hello"?
+
+s02 >> Find all Python files in this directory
+> bash
+./s01_agent_loop/hello.py
+./s01_agent_loop/code.py
+./test.py
+./s02_tool_use/code.py
+> glob
+s01_agent_loop/hello.py
+s01_agent_loop/code.py
+s02_tool_use/code.py
+Found these Python files:
+
+1. `./s01_agent_loop/hello.py`
+2. `./s01_agent_loop/code.py`
+3. `./test.py`
+4. `./s02_tool_use/code.py`
+
+Note: The `glob` pattern `**/*.py` didn't include `test.py` in the root directory, but the `find` command confirms all 4 files including `./test.py`.
+
+s02 >> Read both README.md and requirements.txt, then create a summary file
+> bash
+./requirements.txt
+./s01_agent_loop/README.md
+./s02_tool_use/README.md
+> read_file
+openai>=1.0.0
+python-dotenv>=1.0.0
+> read_file
+# s01: The Agent Loop — One Loop Is All You Need
+
+[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
+
+`s01` → [s02](../s02_tool_use/) → s03 → s04 → ... → s16 → s17
+> *"One loop & Bash is
+> read_file
+# s02: Tool Use — Add a Tool, Add Just One Line
+
+[English](README.md) · [中文](README.zh.md) · [日本語](README.ja.md)
+
+s01 → `s02` → [s03](../s03_permission/) → s04 → ... → s16 → s17
+> *"Add a tool, add ju
+> write_file
+Wrote 2847 bytes to ./SUMMARY.md
+Done. I read all three files (`s01_agent_loop/README.md`, `s02_tool_use/README.md`, and `requirements.txt`) and created a summary at `./SUMMARY.md`.
+
+The summary covers:
+- **s01_agent_loop/README.md** — the `while True` agent loop, its two stop signals, the 5-step loop flow, and the single bash tool.
+- **s02_tool_use/README.md** — tool dispatch via `TOOL_HANDLERS`, the expansion from 1 to 5 tools, multiple tool calls, and a before/after comparison with s01.
+- **requirements.txt** — the two dependencies: `openai>=1.0.0` and `python-dotenv>=1.0.0`.
