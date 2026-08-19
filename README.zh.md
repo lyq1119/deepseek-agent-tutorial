@@ -78,6 +78,7 @@ cp .env.example .env
 | [s03](s03_permission/) | Permission | 拒绝列表、风险规则与用户审批 |
 | [s04](s04_hooks/) | Hooks | 工具执行前后的扩展点 |
 | [s05](s05_todo_write/) | TodoWrite | 带状态的计划与多步骤任务提醒 |
+| [s06](s06_subagent/) | Subagent | 为明确子任务提供全新上下文 |
 
 ## 学习路径
 
@@ -87,6 +88,7 @@ flowchart LR
     S02 --> S03["s03：Permission"]
     S03 --> S04["s04：Hooks"]
     S04 --> S05["s05：TodoWrite"]
+    S05 --> S06["s06：Subagent"]
 ```
 
 从 s01 开始，并在仓库根目录运行每一章：
@@ -97,6 +99,7 @@ python s02_tool_use/code.py
 python s03_permission/code.py
 python s04_hooks/code.py
 python s05_todo_write/code.py
+python s06_subagent/code.py
 ```
 
 > 安全提示：这些教程会执行模型生成的命令。请在独立练习目录中运行；对于潜在破坏性操作，先学习 s03 的权限机制再决定是否批准。
