@@ -51,7 +51,7 @@ Each skill is a directory containing `SKILL.md`:
 ```text
 skills/
   agent-builder/SKILL.md
-  code-review/SKILL.md
+  git-workflow/SKILL.md
   mcp-builder/SKILL.md
   pdf/SKILL.md
 ```
@@ -77,7 +77,7 @@ def scan(self):
 `catalog()` returns only names and descriptions:
 
 ```text
-- code-review: Perform thorough code reviews...
+- git-workflow: Inspect changes and prepare a safe Git commit...
 - pdf: Process PDF files...
 ```
 
@@ -115,20 +115,20 @@ def load(self, name: str) -> str:
 Create a skill at the repository root first:
 
 ```sh
-mkdir -p skills/code-review
+mkdir -p skills/git-workflow
 ```
 
-Then create `skills/code-review/SKILL.md`:
+Then create `skills/git-workflow/SKILL.md`:
 
 ```md
 ---
-name: code-review
-description: Perform thorough code reviews with concrete, actionable findings.
+name: git-workflow
+description: Inspect changes and prepare a safe Git commit.
 ---
 
-# Code review guide
+# Git workflow guide
 
-Read the changed code first. Report correctness, security, and test issues.
+Check git status and the diff first. Never commit secrets, caches, or unrelated files.
 ```
 
 Run the chapter from the repository root:
@@ -140,8 +140,8 @@ python s07_skill_loading/code.py
 Try these prompts:
 
 1. `What skills are available?`
-2. `Load the code-review skill and follow its instructions.`
-3. `Review README.md and load the relevant skill first.`
+2. `Load the git-workflow skill and follow its instructions.`
+3. `Inspect the current changes and load the relevant skill first.`
 
 Check that the system prompt contains only the catalog and that the full `SKILL.md` appears only after `load_skill` is called.
 

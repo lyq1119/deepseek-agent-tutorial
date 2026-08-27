@@ -51,7 +51,7 @@ LLM ──load_skill(name)──> 完整 SKILL.md ──工具消息──> mess
 ```text
 skills/
   agent-builder/SKILL.md
-  code-review/SKILL.md
+  git-workflow/SKILL.md
   mcp-builder/SKILL.md
   pdf/SKILL.md
 ```
@@ -77,7 +77,7 @@ def scan(self):
 `catalog()` 只输出名称和描述：
 
 ```text
-- code-review: Perform thorough code reviews...
+- git-workflow: Inspect changes and prepare a safe Git commit...
 - pdf: Process PDF files...
 ```
 
@@ -115,20 +115,20 @@ def load(self, name: str) -> str:
 先在仓库根目录创建一个 skill：
 
 ```sh
-mkdir -p skills/code-review
+mkdir -p skills/git-workflow
 ```
 
-然后创建 `skills/code-review/SKILL.md`：
+然后创建 `skills/git-workflow/SKILL.md`：
 
 ```md
 ---
-name: code-review
-description: Perform thorough code reviews with concrete, actionable findings.
+name: git-workflow
+description: Inspect changes and prepare a safe Git commit.
 ---
 
-# Code review guide
+# Git workflow guide
 
-Read the changed code first. Report correctness, security, and test issues.
+Check git status and the diff first. Never commit secrets, caches, or unrelated files.
 ```
 
 在仓库根目录运行本章：
@@ -140,8 +140,8 @@ python s07_skill_loading/code.py
 试试这些 prompt：
 
 1. `What skills are available?`
-2. `Load the code-review skill and follow its instructions.`
-3. `Review README.md and load the relevant skill first.`
+2. `Load the git-workflow skill and follow its instructions.`
+3. `Inspect the current changes and load the relevant skill first.`
 
 观察 system prompt 中是否只有技能目录，以及调用 `load_skill` 后是否才出现完整的 `SKILL.md`。
 
