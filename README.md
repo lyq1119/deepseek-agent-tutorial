@@ -79,6 +79,7 @@ The default model is `deepseek-v4-flash`. Never commit your `.env` file.
 | [s04](s04_hooks/) | Hooks | Extension points before and after tool execution |
 | [s05](s05_todo_write/) | TodoWrite | Stateful plans and reminders for multi-step work |
 | [s06](s06_subagent/) | Subagent | Fresh context for focused delegated tasks |
+| [s07](s07_skill_loading/) | Skill Loading | A compact skill catalog and on-demand instructions |
 
 ## Learning Path
 
@@ -89,6 +90,7 @@ flowchart LR
     S03 --> S04["s04: Hooks"]
     S04 --> S05["s05: TodoWrite"]
     S05 --> S06["s06: Subagent"]
+    S06 --> S07["s07: Skill Loading"]
 ```
 
 Start with s01 and run each chapter from the repository root:
@@ -100,6 +102,7 @@ python s03_permission/code.py
 python s04_hooks/code.py
 python s05_todo_write/code.py
 python s06_subagent/code.py
+python s07_skill_loading/code.py
 ```
 
 > Safety: these tutorials can execute model-generated commands. Use a dedicated practice directory and read the permission lesson before granting approval to destructive operations.
