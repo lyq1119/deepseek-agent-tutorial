@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-s01 → s02 → s03 → s04 → s05 → s06 → `s07`
+s01 → s02 → s03 → s04 → s05 → s06 → `s07` → s08 → s09 → ... → s16 → s17
 
 > The system prompt contains the skill catalog; `load_skill` returns the full `SKILL.md`.
 >
@@ -107,40 +107,6 @@ def load(self, name: str) -> str:
 ```
 
 `name` looks up the startup registry; it is not treated as a file path. This is what prevents arbitrary files from being loaded by the skill tool.
-
----
-
-## DeepSeek API Adaptation
-
-The tutorial's control flow stays the same, but the runnable client is DeepSeek's OpenAI-compatible client and `deepseek-v4-flash` is the default model:
-
-```python
-client = OpenAI(
-    api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
-)
-MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
-```
-
-DeepSeek returns function calls in `message.tool_calls`. The actual loop parses each call and appends its result using the matching OpenAI-compatible tool-message format:
-
-```python
-message = response.choices[0].message
-messages.append(message.model_dump(exclude_none=True))
-
-for tool_call in message.tool_calls:
-    arguments = json.loads(tool_call.function.arguments)
-    output = execute_tool(SimpleNamespace(
-        name=tool_call.function.name, input=arguments,
-    ))
-    messages.append({
-        "role": "tool",
-        "tool_call_id": tool_call.id,
-        "content": output,
-    })
-```
-
-The `load_skill` definition is also an OpenAI-compatible function tool, and is dispatched through `TOOL_HANDLERS` exactly like `bash`, `read_file`, and the other existing tools.
 
 ---
 

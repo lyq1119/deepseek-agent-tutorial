@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-s01 → s02 → s03 → s04 → s05 → s06 → `s07`
+s01 → s02 → s03 → s04 → s05 → s06 → `s07` → s08 → s09 → ... → s16 → s17
 
 > system prompt 保存技能目录；`load_skill` 返回完整的 `SKILL.md`。
 >
@@ -107,40 +107,6 @@ def load(self, name: str) -> str:
 ```
 
 `name` 用于查询启动时建立的注册表，不会被当作文件路径，因此 skill 工具不会任意读取文件。
-
----
-
-## DeepSeek API 适配
-
-教程的控制流保持一致，可运行客户端使用 DeepSeek 的 OpenAI 兼容接口，默认模型为 `deepseek-v4-flash`：
-
-```python
-client = OpenAI(
-    api_key=os.environ["DEEPSEEK_API_KEY"],
-    base_url="https://api.deepseek.com",
-)
-MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
-```
-
-DeepSeek 从 `message.tool_calls` 返回函数调用。实际循环会解析每个调用，并以匹配的 OpenAI 兼容工具消息格式追加结果：
-
-```python
-message = response.choices[0].message
-messages.append(message.model_dump(exclude_none=True))
-
-for tool_call in message.tool_calls:
-    arguments = json.loads(tool_call.function.arguments)
-    output = execute_tool(SimpleNamespace(
-        name=tool_call.function.name, input=arguments,
-    ))
-    messages.append({
-        "role": "tool",
-        "tool_call_id": tool_call.id,
-        "content": output,
-    })
-```
-
-`load_skill` 同样被定义为 OpenAI 兼容的函数工具，并和 `bash`、`read_file` 等工具一样通过 `TOOL_HANDLERS` 分发。
 
 ---
 
