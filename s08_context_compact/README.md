@@ -294,7 +294,7 @@ This leaves no orphaned tool result. It also preserves the record of a file writ
 ## Try It
 
 ```bash
-cd learn-claude-code
+cd deepseek-agent-tutorial
 python s08_context_compact/code.py
 ```
 

@@ -294,7 +294,7 @@ if compact_requested:
 ## 试一下
 
 ```bash
-cd learn-claude-code
+cd deepseek-agent-tutorial
 python s08_context_compact/code.py
 ```
 

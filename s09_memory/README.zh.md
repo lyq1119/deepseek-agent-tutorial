@@ -168,7 +168,7 @@ except Exception:
 ## 试一下
 
 ```sh
-cd learn-claude-code
+cd deepseek-agent-tutorial
 python s09_memory/code.py
 ```
 

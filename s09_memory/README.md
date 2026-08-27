@@ -168,7 +168,7 @@ The course uses a simple count threshold. A real application must also choose a 
 ## Try It
 
 ```sh
-cd learn-claude-code
+cd deepseek-agent-tutorial
 python s09_memory/code.py
 ```
 
