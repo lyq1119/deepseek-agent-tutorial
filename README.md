@@ -83,6 +83,7 @@ The default model is `deepseek-v4-flash`. Never commit your `.env` file.
 | [s08](s08_context_compact/) | Context Compact | Persist, trim, and summarize long conversations |
 | [s09](s09_memory/) | Memory | Recall and consolidate durable knowledge |
 | [s10](s10_task_system/) | Task System | Persistent tasks, dependencies, and progress |
+| [s11](s11_background_tasks/) | Background Tasks | Run independent shell work without blocking the agent |
 
 ## Learning Path
 
@@ -97,6 +98,7 @@ flowchart LR
     S07 --> S08["s08: Context Compact"]
     S08 --> S09["s09: Memory"]
     S09 --> S10["s10: Task System"]
+    S10 --> S11["s11: Background Tasks"]
 ```
 
 Start with s01 and run each chapter from the repository root:
@@ -112,6 +114,7 @@ python s07_skill_loading/code.py
 python s08_context_compact/code.py
 python s09_memory/code.py
 python s10_task_system/code.py
+python s11_background_tasks/code.py
 ```
 
 > Safety: these tutorials can execute model-generated commands. Use a dedicated practice directory and read the permission lesson before granting approval to destructive operations.

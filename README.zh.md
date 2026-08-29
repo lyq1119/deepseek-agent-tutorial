@@ -83,6 +83,7 @@ cp .env.example .env
 | [s08](s08_context_compact/) | Context Compact | 持久化、裁剪和总结长对话 |
 | [s09](s09_memory/) | Memory | 召回并合并持久知识 |
 | [s10](s10_task_system/) | Task System | 持久任务、依赖与进度 |
+| [s11](s11_background_tasks/) | Background Tasks | 让独立 Shell 工作不阻塞 Agent |
 
 ## 学习路径
 
@@ -97,6 +98,7 @@ flowchart LR
     S07 --> S08["s08：Context Compact"]
     S08 --> S09["s09：Memory"]
     S09 --> S10["s10：Task System"]
+    S10 --> S11["s11：Background Tasks"]
 ```
 
 从 s01 开始，并在仓库根目录运行每一章：
@@ -112,6 +114,7 @@ python s07_skill_loading/code.py
 python s08_context_compact/code.py
 python s09_memory/code.py
 python s10_task_system/code.py
+python s11_background_tasks/code.py
 ```
 
 > 安全提示：这些教程会执行模型生成的命令。请在独立练习目录中运行；对于潜在破坏性操作，先学习 s03 的权限机制再决定是否批准。
