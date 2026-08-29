@@ -96,6 +96,7 @@ system = build_system(relevant_memories)
 用户不一定会明确说“请记住”。`extract_memories()` 在 Agent 完成本轮回答后检查当前对话，只提取以后仍可能有用的信息：
 
 ```python
+# response 来自 DeepSeekClient 的兼容门面。
 if response.stop_reason != "tool_use":
     force = trigger_hooks("Stop", messages)
     if force:

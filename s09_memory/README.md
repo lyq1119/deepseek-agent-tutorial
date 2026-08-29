@@ -96,6 +96,7 @@ system = build_system(relevant_memories)
 Users do not always say "remember this." After the Agent finishes the current response, `extract_memories()` inspects the conversation and keeps only information likely to help later:
 
 ```python
+# response is returned by DeepSeekClient's compatibility facade.
 if response.stop_reason != "tool_use":
     force = trigger_hooks("Stop", messages)
     if force:

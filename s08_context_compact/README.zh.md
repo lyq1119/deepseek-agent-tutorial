@@ -224,6 +224,7 @@ def agent_loop(messages, active_request):
         messages[:] = COMPACTOR.prepare(messages, active_request)
 
         try:
+            # DeepSeekClient 会把这层兼容调用映射到 chat.completions。
             response = client.messages.create(
                 model=MODEL, system=SYSTEM, messages=messages,
                 tools=TOOLS, max_tokens=8000)

@@ -17,13 +17,37 @@ class DeepSeekMessages:
         for message in messages:
             content = message.get("content", "")
             if isinstance(content, list):
-                if message.get("role") == "user":
+                role = message.get("role")
+                if role == "assistant":
+                    text = []
+                    tool_calls = []
                     for block in content:
-                        if block.get("type") == "tool_result":
-                            converted.append({"role": "tool", "tool_call_id": block["tool_use_id"],
-                                              "content": str(block.get("content", ""))})
+                        block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                        if block_type == "text":
+                            text.append(block.get("text", "") if isinstance(block, dict) else getattr(block, "text", ""))
+                        elif block_type == "tool_use":
+                            name = block.get("name", "") if isinstance(block, dict) else getattr(block, "name", "")
+                            tool_input = block.get("input", {}) if isinstance(block, dict) else getattr(block, "input", {})
+                            tool_id = block.get("id", "") if isinstance(block, dict) else getattr(block, "id", "")
+                            tool_calls.append({"id": tool_id, "type": "function", "function": {
+                                "name": name, "arguments": json.dumps(tool_input, ensure_ascii=False)}})
+                    converted.append({"role": "assistant", "content": "\n".join(text) or None,
+                                      **({"tool_calls": tool_calls} if tool_calls else {})})
+                elif role == "user":
+                    text = []
+                    for block in content:
+                        block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                        if block_type == "tool_result":
+                            tool_id = block.get("tool_use_id", "") if isinstance(block, dict) else getattr(block, "tool_use_id", "")
+                            result = block.get("content", "") if isinstance(block, dict) else getattr(block, "content", "")
+                            converted.append({"role": "tool", "tool_call_id": tool_id,
+                                              "content": str(result)})
+                        elif block_type == "text":
+                            text.append(block.get("text", "") if isinstance(block, dict) else getattr(block, "text", ""))
+                    if text:
+                        converted.append({"role": "user", "content": "\n".join(text)})
                 else:
-                    converted.append({"role": message["role"], "content": str(content)})
+                    converted.append({"role": role, "content": str(content)})
             else:
                 converted.append({"role": message["role"], "content": content})
         openai_tools = [{"type": "function", "function": {"name": item["name"],

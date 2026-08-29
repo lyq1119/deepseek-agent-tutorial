@@ -224,6 +224,7 @@ def agent_loop(messages, active_request):
         messages[:] = COMPACTOR.prepare(messages, active_request)
 
         try:
+            # DeepSeekClient maps this facade call to chat.completions.
             response = client.messages.create(
                 model=MODEL, system=SYSTEM, messages=messages,
                 tools=TOOLS, max_tokens=8000)

@@ -98,6 +98,7 @@ Before each LLM call, the Agent Loop collects completed background results. `exe
 ```python
 while True:
     inject_background_results(messages)
+    # DeepSeekClient maps this facade call to chat.completions.
     response = client.messages.create(...)
 
 def execute_tool(block) -> str:

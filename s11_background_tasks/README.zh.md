@@ -98,6 +98,7 @@ def collect_background_results() -> list[str]:
 ```python
 while True:
     inject_background_results(messages)
+    # DeepSeekClient 会把这层兼容调用映射到 chat.completions。
     response = client.messages.create(...)
 
 def execute_tool(block) -> str:
